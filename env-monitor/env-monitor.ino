@@ -64,7 +64,7 @@ void setup() {
     EEPROM.write(EEPROM_IDX_ADDR, writeIdx);
   }
 
-  lastReadMs = millis();  // first reading triggers immediately
+  lastReadMs = millis() - READ_INTERVAL_MS + 5000;  // first reading in ~5 seconds
 }
 
 void loop() {
