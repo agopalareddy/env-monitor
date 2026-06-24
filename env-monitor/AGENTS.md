@@ -6,14 +6,14 @@ Continuous environment monitor: DHT11 → LCD 1602 → EEPROM buffer → ThingSp
 
 | Component | Arduino Pin |
 |-----------|-------------|
-| DHT11 data | Pin 7 |
+| DHT11 data | Pin 2 |
 | Button (to GND, internal pullup) | Pin 6 |
-| LCD RS | Pin 12 |
-| LCD E | Pin 11 |
-| LCD D4 | Pin 5 |
-| LCD D5 | Pin 4 |
-| LCD D6 | Pin 3 |
-| LCD D7 | Pin 2 |
+| LCD RS | Pin 7 |
+| LCD E | Pin 8 |
+| LCD D4 | Pin 9 |
+| LCD D5 | Pin 10 |
+| LCD D6 | Pin 11 |
+| LCD D7 | Pin 12 |
 | LCD V0 → Pot wiper (10K pot 5V-GND) | |
 | LCD A → 5V via 220Ω | |
 | LCD K → GND | |

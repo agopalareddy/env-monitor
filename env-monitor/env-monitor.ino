@@ -2,10 +2,10 @@
 // Reads temp/humidity every 2 min, displays on LCD 1602,
 // stores rolling buffer in EEPROM, dump on serial command or button press.
 //
-// Wiring:
-//   DHT11 data → Pin 7
+// Wiring (matches breadboard instructions received):
+//   DHT11 data → Pin 2
 //   Button (to GND, internal pullup) → Pin 6
-//   LCD RS → Pin 12, E → Pin 11, D4→5, D5→4, D6→3, D7→2
+//   LCD RS → Pin 7,  E → Pin 8,  D4→9,  D5→10,  D6→11,  D7→12
 //   LCD V0 → Pot wiper (10K pot between 5V and GND)
 //   LCD A → 5V via 220Ω resistor
 
@@ -14,15 +14,15 @@
 #include <EEPROM.h>
 
 // Pins
-#define DHTPIN 7
+#define DHTPIN 2
 #define DHTTYPE DHT11
 #define BTN_PIN 6
-#define LCD_RS 12
-#define LCD_E 11
-#define LCD_D4 5
-#define LCD_D5 4
-#define LCD_D6 3
-#define LCD_D7 2
+#define LCD_RS 7
+#define LCD_E 8
+#define LCD_D4 9
+#define LCD_D5 10
+#define LCD_D6 11
+#define LCD_D7 12
 
 // EEPROM layout
 // Byte 0: write_index (next slot, 0..254, 0xFF = uninitialized)
