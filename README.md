@@ -69,16 +69,25 @@ A continuous environment monitoring station built with the **Elegoo UNO R3 Super
 - Effective lifetime of EEPROM exceeds 30 years with wear leveling
 - Data not lost when power is removed
 
-### Cloud Upload (on demand)
+### Cloud Upload (ThingSpeak)
 
-Run the Python bridge to upload stored data to **ThingSpeak**:
+1. **Create channel** at [thingspeak.com](https://thingspeak.com) → **New Channel** → name it → enable Field 1 (temp) and Field 2 (humidity)
+2. **Copy** your Write API Key from the API Keys tab
+3. **Create `.env`** in project root with your key:
+
+```
+THINGSPEAK_API_KEY=your_write_api_key_here
+THINGSPEAK_CHANNEL=3415449
+```
+
+4. **Run bridge** to upload:
 
 ```bash
 pip install pyserial requests
 python bridge.py
 ```
 
-This dumps the EEPROM buffer over serial and sends it to your ThingSpeak channel via the bulk JSON API.
+First run uploads the full EEPROM buffer. Subsequent runs upload only new entries (no duplicates tracked via `.last_upload`). Pass `--historical` to re-upload everything.
 
 **Live demo channel:** [https://thingspeak.com/channels/3415449](https://thingspeak.com/channels/3415449)
 
@@ -117,14 +126,8 @@ pip install pyserial requests
 python bridge.py                    # auto-detect port, dump + upload
 python bridge.py --port COM3        # Windows: specify COM port
 python bridge.py --live             # live reading only (skip buffer)
+python bridge.py --historical       # upload all buffer entries (skip dedup)
 python bridge.py --no-upload        # dump to CSV only
-```
-
-Configure your ThingSpeak API key in `.env`:
-
-```
-THINGSPEAK_API_KEY=your_write_api_key
-THINGSPEAK_CHANNEL=3415449
 ```
 
 ## Project Structure
@@ -141,14 +144,6 @@ README.md
 build/               # Compiled hex (gitignored)
 ```
 
-## Roadmap / Ideas
-
-- [ ] Add buzzer alarm for temperature thresholds
-- [ ] RGB LED status indicator (green = normal, red = hot)
-- [ ] RTC module for real timestamps in EEPROM
-- [ ] SD card module for standalone logging (no serial bridge)
-- [ ] ESP8266 WiFi module for direct cloud upload
-
 ## License
 
-MIT
+[MIT](LICENSE)
