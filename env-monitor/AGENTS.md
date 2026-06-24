@@ -7,7 +7,8 @@ Continuous environment monitor: DHT11 → LCD 1602 → EEPROM buffer → ThingSp
 | Component | Arduino Pin |
 |-----------|-------------|
 | DHT11 data | Pin 2 |
-| Button (to GND, internal pullup) | Pin 6 |
+| Button 1 (refresh → read now) | Pin 5 (to GND) |
+| Button 2 (click=unit, hold=field) | Pin 6 (to GND) |
 | LCD RS | Pin 7 |
 | LCD E | Pin 8 |
 | LCD D4 | Pin 9 |
@@ -44,7 +45,9 @@ Bridge sends `D` → Arduino dumps EEPROM buffer → uploaded to ThingSpeak via 
 ## Expected behavior
 
 - **Standalone**: LCD shows "Temp: XX.X°C" / "Hum: XX.X%", updates every 2 min
-- **Button press**: triggers buffer dump over serial (same as `D` command)
+- **Pin5 button press**: forces DHT11 read now (LCD updates immediately)
+- **Pin6 click**: toggles unit °C↔°F for selected field
+- **Pin6 hold (1s)**: switches which field blinks (temp ↔ hum)
 - **Bridge run**: pulls buffer + live reading, uploads to ThingSpeak, appends `log.csv`
 - **ThingSpeak**: https://thingspeak.com/channels/3415449
 
@@ -65,7 +68,9 @@ Bridge sends `D` → Arduino dumps EEPROM buffer → uploaded to ThingSpeak via 
 | `D` | `---BUFFER_START---` ... `idx,temp,hum\n` ... `---BUFFER_END---` `COUNT,N` |
 | `L` | `LIVE,temp,hum` or `ERR,SENSOR` |
 | `Q` | `OK,RESUME` |
-| Button press | Same as `D` with `BTN,DUMP` prefix |
+| Pin5 button | Forces DHT11 read now |
+| Pin6 click | Toggle °C/°F unit |
+| Pin6 hold | Switch selected field (temp↔hum) |
 
 ## Files
 
