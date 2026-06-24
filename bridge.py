@@ -32,7 +32,12 @@ except ImportError:
 
 
 # ── Config ──────────────────────────────────────────────────────────────
-ENV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+ENV_PATH = next((
+    p for p in [
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"),
+        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"),
+    ] if os.path.exists(p)
+), None)
 
 API_KEY = None
 CHANNEL_ID = None
@@ -42,7 +47,7 @@ READ_INTERVAL_MIN = 2
 
 def load_env():
     global API_KEY, CHANNEL_ID, THINGSPEAK_URL, READ_INTERVAL_MIN
-    if not os.path.exists(ENV_PATH):
+    if not ENV_PATH or not os.path.exists(ENV_PATH):
         print("WARNING: .env not found. Create it with THINGSPEAK_API_KEY and THINGSPEAK_CHANNEL.")
         return
     with open(ENV_PATH) as f:
@@ -104,7 +109,7 @@ def open_serial(port=None):
 
 def send_command(ser, cmd):
     """Send single-char command, read response lines until terminator."""
-    ser.write(cmd.encode())
+    ser.write(cmd if isinstance(cmd, bytes) else cmd.encode())
     ser.flush()
     time.sleep(0.5)
     lines = []
