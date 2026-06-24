@@ -4,13 +4,14 @@
 //
 // Buttons:
 //   Pin5 click → force DHT11 read now (refresh)
-//   Pin6 click → toggle unit for selected field (°C↔°F)
-//   Pin6 hold  → switch selected field (temp↔hum), blinks on LCD
+//   Pin6 click → toggle unit for selected field (°C↔°F), none on light page
+//   Pin6 hold  → cycle display pages (env → light → env)
 //
 // Wiring:
 //   DHT11 data → Pin 2
 //   Button1 (refresh, to GND) → Pin 5
-//   Button2 (unit/field, to GND) → Pin 6
+//   Button2 (unit/page, to GND) → Pin 6
+//   LDR + 10kΩ voltage divider → A0
 //   LCD RS → Pin 7,  E → Pin 8,  D4→9,  D5→10,  D6→11,  D7→12
 //   LCD V0 → Pot wiper (10K pot between 5V and GND)
 //   LCD A → 5V via 220Ω resistor
@@ -30,6 +31,7 @@
 #define LCD_D5 10
 #define LCD_D6 11
 #define LCD_D7 12
+#define LDR_PIN A0
 
 // ── EEPROM layout (1024 bytes total) ──
 #define EEPROM_IDX_ADDR 0
@@ -54,6 +56,7 @@ DHT dht(DHTPIN, DHTTYPE);
 
 // ── State ──
 uint8_t writeIdx;
+uint8_t displayPage = 0;  // 0=env, 1=light
 TempUnit tempUnit = UNIT_C;
 HumUnit humUnit = UNIT_RH;
 bool fieldSelected = false;
@@ -159,18 +162,18 @@ BtnAction pollCtrlBtn() {
 void handleButtonAction(BtnAction action) {
   switch (action) {
     case ACT_TOGGLE_UNIT:
-      if (fieldIsTemp) {
+      if (displayPage == 0 && fieldIsTemp) {
         tempUnit = (TempUnit)((tempUnit + 1) % 3);
         EEPROM.write(EEPROM_TUNIT_ADDR, (uint8_t)tempUnit);
-      } else {
+      } else if (displayPage == 0 && !fieldIsTemp) {
         humUnit = (humUnit == UNIT_RH) ? UNIT_DEW : UNIT_RH;
         EEPROM.write(EEPROM_HUNIT_ADDR, (uint8_t)humUnit);
       }
-      doRead();
+      if (displayPage == 0) doRead();
       break;
     case ACT_SWITCH_FIELD:
+      displayPage = (displayPage + 1) % 2;
       fieldSelected = true;
-      fieldIsTemp = !fieldIsTemp;
       lastFieldActivity = millis();
       break;
     default: break;
@@ -212,6 +215,14 @@ void storeReading(float temp, float hum) {
 
 // ── LCD display ──
 void updateLcd() {
+  if (displayPage == 0) {
+    updateLcdEnv();
+  } else {
+    updateLcdLight();
+  }
+}
+
+void updateLcdEnv() {
   if (sensorError) {
     lcd.clear();
     lcd.print("Sensor error");
@@ -277,6 +288,24 @@ float calcDewPoint(float t, float rh) {
   float a = 17.27, b = 237.7;
   float gamma = log(rh / 100.0) + (a * t) / (b + t);
   return (b * gamma) / (a - gamma);
+}
+
+// ── LCD page: light sensor (LDR on A0) ──
+void updateLcdLight() {
+  int raw = analogRead(LDR_PIN);
+  int pct = constrain(map(raw, 0, 1023, 0, 100), 0, 100);
+
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("Light Sensor");
+
+  lcd.setCursor(0, 1);
+  lcd.print("Raw:");
+  lcd.print(raw);
+  lcd.print("  ");
+  lcd.print(pct);
+  lcd.print("%");
+  lcd.noBlink();
 }
 
 // ── Serial: dump EEPROM buffer ──
