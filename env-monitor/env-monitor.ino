@@ -34,6 +34,7 @@
 // ── EEPROM layout (1024 bytes total) ──
 #define EEPROM_IDX_ADDR 0
 #define EEPROM_TUNIT_ADDR 1023
+#define EEPROM_HUNIT_ADDR 1022
 #define EEPROM_DATA_START 1
 #define EEPROM_SLOTS 255
 
@@ -45,7 +46,8 @@
 
 // Button actions
 enum BtnAction { ACT_NONE, ACT_TOGGLE_UNIT, ACT_SWITCH_FIELD };
-enum TempUnit { UNIT_C = 0, UNIT_F = 1 };
+enum TempUnit { UNIT_C = 0, UNIT_F = 1, UNIT_K = 2 };
+enum HumUnit { UNIT_RH = 0, UNIT_DEW = 1 };
 
 LiquidCrystal lcd(LCD_RS, LCD_E, LCD_D4, LCD_D5, LCD_D6, LCD_D7);
 DHT dht(DHTPIN, DHTTYPE);
@@ -53,6 +55,7 @@ DHT dht(DHTPIN, DHTTYPE);
 // ── State ──
 uint8_t writeIdx;
 TempUnit tempUnit = UNIT_C;
+HumUnit humUnit = UNIT_RH;
 bool fieldSelected = false;
 bool fieldIsTemp = true;
 unsigned long lastFieldActivity = 0;
@@ -81,6 +84,7 @@ void setup() {
 
   uint8_t u = EEPROM.read(EEPROM_TUNIT_ADDR);
   tempUnit = (u == UNIT_F) ? UNIT_F : UNIT_C;
+  humUnit = (EEPROM.read(EEPROM_HUNIT_ADDR) == UNIT_DEW) ? UNIT_DEW : UNIT_RH;
 
   lcd.print("  Env Monitor");
   lcd.setCursor(0, 1);
@@ -155,8 +159,13 @@ BtnAction pollCtrlBtn() {
 void handleButtonAction(BtnAction action) {
   switch (action) {
     case ACT_TOGGLE_UNIT:
-      tempUnit = (tempUnit == UNIT_C) ? UNIT_F : UNIT_C;
-      EEPROM.write(EEPROM_TUNIT_ADDR, (uint8_t)tempUnit);
+      if (fieldIsTemp) {
+        tempUnit = (TempUnit)((tempUnit + 1) % 3);
+        EEPROM.write(EEPROM_TUNIT_ADDR, (uint8_t)tempUnit);
+      } else {
+        humUnit = (humUnit == UNIT_RH) ? UNIT_DEW : UNIT_RH;
+        EEPROM.write(EEPROM_HUNIT_ADDR, (uint8_t)humUnit);
+      }
       doRead();
       break;
     case ACT_SWITCH_FIELD:
@@ -213,33 +222,61 @@ void updateLcd() {
   }
   if (isnan(currentTemp) || isnan(currentHum)) return;
 
-  float dispTemp = (tempUnit == UNIT_F) ? (currentTemp * 9.0 / 5.0 + 32.0) : currentTemp;
-  char unitChar = (tempUnit == UNIT_F) ? 'F' : 'C';
-
   lcd.clear();
+
+  // Display temp
   lcd.setCursor(0, 0);
-  lcd.print("Temp: ");
-  lcd.print(dispTemp, 1);
-  lcd.print((char)223);
-  lcd.print(unitChar);
+  lcd.print("Tmp:");
+  if (tempUnit == UNIT_K) {
+    lcd.print(currentTemp + 273.15, 1);
+    lcd.print("K ");
+  } else {
+    float dispTemp = (tempUnit == UNIT_F) ? (currentTemp * 9.0 / 5.0 + 32.0) : currentTemp;
+    lcd.print(dispTemp, 1);
+    lcd.print((char)223);
+    lcd.print(tempUnit == UNIT_F ? 'F' : 'C');
+  }
 
+  // Line 1: humidity or dew point
   lcd.setCursor(0, 1);
-  lcd.print("Hum:  ");
-  lcd.print(currentHum, 1);
-  lcd.print("%");
+  if (humUnit == UNIT_RH) {
+    lcd.print("Hum:  ");
+    lcd.print(currentHum, 1);
+    lcd.print("%");
+  } else {
+    float dewPt = calcDewPoint(currentTemp, currentHum);
+    lcd.print("DP: ");
+    if (tempUnit == UNIT_K) {
+      lcd.print(dewPt + 273.15, 1);
+      lcd.print("K ");
+    } else {
+      if (tempUnit == UNIT_F) dewPt = dewPt * 9.0 / 5.0 + 32.0;
+      lcd.print(dewPt, 1);
+      lcd.print((char)223);
+      lcd.print(tempUnit == UNIT_F ? 'F' : 'C');
+    }
+  }
 
+  // Blink cursor
   unsigned long now = millis();
   if (fieldSelected && (now - lastFieldActivity < FIELD_SELECT_TIMEOUT_MS)) {
     if (fieldIsTemp) {
       lcd.setCursor(12, 0);
     } else {
-      lcd.setCursor(11, 1);
+      lcd.setCursor(humUnit == UNIT_RH ? 11 : 9, 1);
     }
     lcd.blink();
   } else {
     lcd.noBlink();
     fieldSelected = false;
   }
+}
+
+// Dew point: Magnus formula (0..50°C, 0..100% RH)
+float calcDewPoint(float t, float rh) {
+  float a = 17.27, b = 237.7;
+  float gamma = log(rh / 100.0) + (a * t) / (b + t);
+  return (b * gamma) / (a - gamma);
 }
 
 // ── Serial: dump EEPROM buffer ──
