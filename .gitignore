@@ -1,0 +1,13 @@
+# Arduino build artifacts
+/build/
+*.elf
+*.hex
+
+# Python
+__pycache__/
+*.pyc
+.env
+
+# OS
+.DS_Store
+Thumbs.db
