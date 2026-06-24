@@ -1,5 +1,7 @@
 # Arduino Environment Monitor
 
+[![GitHub](https://img.shields.io/badge/github-agopalareddy/env--monitor-181717?logo=github)](https://github.com/agopalareddy/env-monitor)
+
 A continuous environment monitoring station built with the **Elegoo UNO R3 Super Starter Kit**. Reads temperature, humidity, and ambient light — displays on an LCD, stores data in EEPROM, and uploads to ThingSpeak on demand.
 
 ## Hardware
