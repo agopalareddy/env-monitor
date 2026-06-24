@@ -6,6 +6,7 @@ Usage:
     python bridge.py                     # auto-detect, dump EEPROM + live, upload
     python bridge.py --port /dev/ttyACM0  # specify serial port
     python bridge.py --live              # live reading only (ignore buffer)
+    python bridge.py --historical        # upload full buffer (no dedup)
     python bridge.py --no-upload         # dump to CSV only, skip ThingSpeak
 """
 
@@ -179,6 +180,30 @@ def parse_live(line):
 # ── Storage ─────────────────────────────────────────────────────────────
 
 CSV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "log.csv")
+STATE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".last_upload")
+
+def load_upload_state():
+    """Return last count of entries uploaded to ThingSpeak. 0 = first run."""
+    if os.path.exists(STATE_PATH):
+        with open(STATE_PATH) as f:
+            return int(f.read().strip())
+    return 0
+
+def save_upload_state(count):
+    with open(STATE_PATH, "w") as f:
+        f.write(str(count))
+
+def filter_new_readings(readings, historical=False):
+    """Return only readings not yet uploaded. Uses COUNT from last dump to skip old ones."""
+    if historical or not readings:
+        return readings
+    stored = load_upload_state()
+    current = len(readings)
+    if current <= stored:
+        # buffer wrapped: all readings are new (old ones overwritten)
+        return readings
+    # only the last (current - stored) readings are new
+    return readings[stored:]
 
 def append_csv(readings, live=None):
     """Append parsed readings to local CSV file."""
@@ -202,7 +227,7 @@ def append_csv(readings, live=None):
 # ── ThingSpeak Upload ──────────────────────────────────────────────────
 
 def upload_bulk(readings, live=None):
-    """Upload historical readings via bulk JSON, then live reading individually."""
+    """Upload readings + live to ThingSpeak. Readings already filtered by caller."""
     if not readings and not live:
         print("  ThingSpeak: nothing to upload")
         return
@@ -210,9 +235,23 @@ def upload_bulk(readings, live=None):
         print("  ThingSpeak: configure .env with THINGSPEAK_API_KEY and THINGSPEAK_CHANNEL")
         return
 
-    # Bulk upload (historical buffer)
+    now = datetime.now(timezone.utc)
+
+    # Live reading (individual update)
+    if live:
+        temp, hum = live
+        params = {"api_key": API_KEY, "field1": round(temp, 1), "field2": round(hum, 1)}
+        try:
+            resp = requests.get(THINGSPEAK_UPDATE_URL, params=params, timeout=15)
+            if resp.text and resp.text != "0":
+                print(f"  ThingSpeak: live reading uploaded (entry {resp.text})")
+            else:
+                print(f"  ThingSpeak live upload: no response (check API key)")
+        except requests.RequestException as e:
+            print(f"  ThingSpeak live upload error: {e}")
+
+    # Bulk upload (readings already new-only from filter_new_readings)
     if readings:
-        now = datetime.now(timezone.utc)
         updates = []
         count = len(readings)
         for i, (idx, temp, hum) in enumerate(readings):
@@ -234,23 +273,6 @@ def upload_bulk(readings, live=None):
         except requests.RequestException as e:
             print(f"  ThingSpeak bulk upload error: {e}")
 
-        # Rate limit: 15s between writes on free tier
-        print("  Waiting 15s for rate limit...")
-        time.sleep(15)
-
-    # Live reading (individual update)
-    if live:
-        temp, hum = live
-        params = {"api_key": API_KEY, "field1": round(temp, 1), "field2": round(hum, 1)}
-        try:
-            resp = requests.get(THINGSPEAK_UPDATE_URL, params=params, timeout=15)
-            if resp.text and resp.text != "0":
-                print(f"  ThingSpeak: live reading uploaded (entry {resp.text})")
-            else:
-                print(f"  ThingSpeak live upload: no response (check API key)")
-        except requests.RequestException as e:
-            print(f"  ThingSpeak live upload error: {e}")
-
 
 # ── Main ───────────────────────────────────────────────────────────────
 
@@ -258,12 +280,14 @@ def main():
     parser = argparse.ArgumentParser(description="Arduino DHT11 monitor → ThingSpeak bridge")
     parser.add_argument("--port", help="Serial port (e.g. /dev/ttyACM0)")
     parser.add_argument("--live", action="store_true", help="Live reading only")
+    parser.add_argument("--historical", action="store_true", help="Upload ALL buffer entries (including old ones). Default: skip already-uploaded.")
     parser.add_argument("--no-upload", action="store_true", help="Skip ThingSpeak upload")
     args = parser.parse_args()
 
     print("=== Env Monitor Bridge ===")
     print(f"  ThingSpeak channel: {CHANNEL_ID}")
     print(f"  Mode: {'live only' if args.live else 'dump buffer + live'}")
+    print(f"  Historical: {'yes (upload all)' if args.historical else 'no (skip already-uploaded)'}")
     print(f"  Upload: {'disabled' if args.no_upload else 'enabled'}")
 
     ser = open_serial(args.port)
@@ -289,14 +313,21 @@ def main():
     send_command(ser, b"Q")
     ser.close()
 
-    # ── Save to CSV ──
+    # ── Save to CSV (all readings) ──
     if readings or live:
         append_csv(readings, live)
 
-    # ── Upload to ThingSpeak ──
+    # ── Upload to ThingSpeak (new readings only, unless --historical) ──
+    upload_readings = filter_new_readings(readings, historical=args.historical)
+    skip_count = len(readings) - len(upload_readings)
+    if skip_count > 0:
+        print(f"\n  Skipping {skip_count} already-uploaded entries")
     if not args.no_upload:
         print()
-        upload_bulk(readings, live)
+        upload_bulk(upload_readings, live)
+    # Save state AFTER successful upload
+    if upload_readings:
+        save_upload_state(len(readings))
 
     # ── Summary ──
     print(f"\n  Done. {len(readings)} historical + {'1 live' if live else '0 live'} = {len(readings) + (1 if live else 0)} readings")
