@@ -74,7 +74,6 @@ A continuous environment monitoring station built with the **Elegoo UNO R3 Super
 Run the Python bridge to upload stored data to **ThingSpeak**:
 
 ```bash
-cd env-monitor/
 pip install pyserial requests
 python bridge.py
 ```
@@ -85,7 +84,7 @@ This dumps the EEPROM buffer over serial and sends it to your ThingSpeak channel
 
 ### Local CSV Logging
 
-Each bridge run also appends readings to `env-monitor/log.csv` with approximate timestamps:
+Each bridge run also appends readings to `log.csv` with approximate timestamps:
 
 ```csv
 timestamp,temp_c,humidity,source
@@ -107,7 +106,6 @@ arduino-cli core install arduino:avr
 arduino-cli lib install "DHT sensor library"
 arduino-cli lib install LiquidCrystal
 
-cd env-monitor/
 arduino-cli compile --fqbn arduino:avr:uno env-monitor.ino
 arduino-cli upload --fqbn arduino:avr:uno -p <PORT> env-monitor.ino
 ```
@@ -122,7 +120,7 @@ python bridge.py --live             # live reading only (skip buffer)
 python bridge.py --no-upload        # dump to CSV only
 ```
 
-Configure your ThingSpeak API key in `env-monitor/.env`:
+Configure your ThingSpeak API key in `.env`:
 
 ```
 THINGSPEAK_API_KEY=your_write_api_key
@@ -132,18 +130,15 @@ THINGSPEAK_CHANNEL=3415449
 ## Project Structure
 
 ```
-arduino/
-├── .gitignore
-├── LICENSE
-├── README.md
-└── env-monitor/
-    ├── AGENTS.md          # Wiring reference + build instructions
-    ├── env-monitor.ino    # Arduino sketch
-    ├── bridge.py          # Python serial → ThingSpeak bridge
-    ├── .env               # API keys (gitignored)
-    ├── log.csv            # Local data log (appended each bridge run)
-    ├── build/             # Compiled hex (gitignored)
-    └── __pycache__/       # Python cache (gitignored)
+.env                 # API keys (gitignored)
+.gitignore
+AGENTS.md            # Wiring reference + build instructions
+bridge.py            # Python serial → ThingSpeak bridge
+env-monitor.ino      # Arduino sketch
+LICENSE
+log.csv              # Local data log (appended each bridge run)
+README.md
+build/               # Compiled hex (gitignored)
 ```
 
 ## Roadmap / Ideas
