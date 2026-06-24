@@ -61,7 +61,6 @@ uint8_t displayPage = 0;  // 0=env, 1=light
 TempUnit tempUnit = UNIT_C;
 HumUnit humUnit = UNIT_RH;
 bool fieldSelected = false;
-bool fieldIsTemp = true;
 unsigned long lastFieldActivity = 0;
 unsigned long lastReadMs = 0;
 float currentTemp = NAN, currentHum = NAN;
@@ -167,12 +166,9 @@ BtnAction pollCtrlBtn() {
 void handleButtonAction(BtnAction action) {
   switch (action) {
     case ACT_TOGGLE_UNIT:
-      if (displayPage == 0 && fieldIsTemp) {
+      if (displayPage == 0) {
         tempUnit = (TempUnit)((tempUnit + 1) % 3);
         EEPROM.write(EEPROM_TUNIT_ADDR, (uint8_t)tempUnit);
-      } else if (displayPage == 0 && !fieldIsTemp) {
-        humUnit = (humUnit == UNIT_RH) ? UNIT_DEW : UNIT_RH;
-        EEPROM.write(EEPROM_HUNIT_ADDR, (uint8_t)humUnit);
       }
       if (displayPage == 0) doRead();
       break;
@@ -276,11 +272,7 @@ void updateLcdEnv() {
   // Blink cursor
   unsigned long now = millis();
   if (fieldSelected && (now - lastFieldActivity < FIELD_SELECT_TIMEOUT_MS)) {
-    if (fieldIsTemp) {
-      lcd.setCursor(12, 0);
-    } else {
-      lcd.setCursor(humUnit == UNIT_RH ? 11 : 9, 1);
-    }
+    lcd.setCursor(12, 0);
     lcd.blink();
   } else {
     lcd.noBlink();
@@ -321,10 +313,6 @@ void updateLcdLight() {
 void dumpBuffer() {
   uint8_t idx = EEPROM.read(EEPROM_IDX_ADDR);
   if (idx >= EEPROM_SLOTS) idx = 0;
-
-  uint8_t rawUnit = EEPROM.read(EEPROM_TUNIT_ADDR);
-  Serial.print("TUNIT,");
-  Serial.println(rawUnit == UNIT_F ? 1 : 0);
 
   uint8_t oldest = (idx == 0) ? (EEPROM_SLOTS - 1) : (idx - 1);
   Serial.println("---BUFFER_START---");

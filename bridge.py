@@ -15,7 +15,6 @@ import csv
 import os
 import sys
 import time
-import json
 from datetime import datetime, timezone, timedelta
 
 try:
@@ -33,12 +32,8 @@ except ImportError:
 
 
 # ── Config ──────────────────────────────────────────────────────────────
-ENV_PATH = next((
-    p for p in [
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"),
-        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"),
-    ] if os.path.exists(p)
-), None)
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+ENV_PATH = os.path.join(SCRIPT_DIR, ".env")
 
 API_KEY = None
 CHANNEL_ID = None
@@ -179,8 +174,8 @@ def parse_live(line):
 
 # ── Storage ─────────────────────────────────────────────────────────────
 
-CSV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "log.csv")
-STATE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".last_upload")
+CSV_PATH = os.path.join(SCRIPT_DIR, "log.csv")
+STATE_PATH = os.path.join(SCRIPT_DIR, ".last_upload")
 
 def load_upload_state():
     """Return last count of entries uploaded to ThingSpeak. 0 = first run."""

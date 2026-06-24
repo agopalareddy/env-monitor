@@ -6,7 +6,8 @@
 # Python
 __pycache__/
 *.pyc
-.env
+log.csv
+.last_upload
 
 # OS
 .DS_Store
