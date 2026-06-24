@@ -42,6 +42,7 @@
 
 // Timings
 #define READ_INTERVAL_MS 120000L
+#define LDR_INTERVAL_MS 500
 #define BTN_DEBOUNCE_MS 50
 #define HOLD_THRESHOLD_MS 1000
 #define FIELD_SELECT_TIMEOUT_MS 10000
@@ -74,6 +75,10 @@ enum CtrlSm { CTRL_IDLE, CTRL_PRESSED };
 CtrlSm ctrlSm = CTRL_IDLE;
 unsigned long ctrlPressMs = 0;
 unsigned long lastCtrlMs = 0;
+
+// LDR
+unsigned long lastLdrMs = 0;
+int currentLightRaw = 0;
 
 void setup() {
   Serial.begin(9600);
@@ -290,10 +295,14 @@ float calcDewPoint(float t, float rh) {
   return (b * gamma) / (a - gamma);
 }
 
-// ── LCD page: light sensor (LDR on A0) ──
+// ── LCD page: light sensor (LDR on A0, updated every 500ms) ──
 void updateLcdLight() {
-  int raw = analogRead(LDR_PIN);
-  int pct = constrain(map(raw, 0, 1023, 0, 100), 0, 100);
+  unsigned long now = millis();
+  if (now - lastLdrMs >= LDR_INTERVAL_MS) {
+    lastLdrMs = now;
+    currentLightRaw = analogRead(LDR_PIN);
+  }
+  int pct = constrain(map(currentLightRaw, 0, 1023, 0, 100), 0, 100);
 
   lcd.clear();
   lcd.setCursor(0, 0);
@@ -301,7 +310,7 @@ void updateLcdLight() {
 
   lcd.setCursor(0, 1);
   lcd.print("Raw:");
-  lcd.print(raw);
+  lcd.print(currentLightRaw);
   lcd.print("  ");
   lcd.print(pct);
   lcd.print("%");
