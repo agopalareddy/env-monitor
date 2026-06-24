@@ -2,15 +2,15 @@
 // Reads temp/humidity every 2 min, displays on LCD 1602,
 // stores rolling buffer in EEPROM, dump on serial command.
 //
-// Button:
-//   single press → force DHT11 read now
-//   double press → select which field (temp/hum) to toggle
-//   hold 1s+    → toggle unit for selected field (°C↔°F)
-//   selected field blinks on LCD
+// Buttons:
+//   Pin5 click → force DHT11 read now (refresh)
+//   Pin6 click → toggle unit for selected field (°C↔°F)
+//   Pin6 hold  → switch selected field (temp↔hum), blinks on LCD
 //
 // Wiring:
 //   DHT11 data → Pin 2
-//   Button (to GND, internal pullup) → Pin 6
+//   Button1 (refresh, to GND) → Pin 5
+//   Button2 (unit/field, to GND) → Pin 6
 //   LCD RS → Pin 7,  E → Pin 8,  D4→9,  D5→10,  D6→11,  D7→12
 //   LCD V0 → Pot wiper (10K pot between 5V and GND)
 //   LCD A → 5V via 220Ω resistor
@@ -22,7 +22,8 @@
 // ── Pins ──
 #define DHTPIN 2
 #define DHTTYPE DHT11
-#define BTN_PIN 6
+#define BTN_REFRESH 5
+#define BTN_CTRL 6
 #define LCD_RS 7
 #define LCD_E 8
 #define LCD_D4 9
@@ -31,9 +32,6 @@
 #define LCD_D7 12
 
 // ── EEPROM layout (1024 bytes total) ──
-//   Byte 0:      write_index
-//   Bytes 1..510: data buffer (255 slots × 2 bytes)
-//   Byte 1023:    temp unit (0=°C, 1=°F)
 #define EEPROM_IDX_ADDR 0
 #define EEPROM_TUNIT_ADDR 1023
 #define EEPROM_DATA_START 1
@@ -43,12 +41,10 @@
 #define READ_INTERVAL_MS 120000L
 #define BTN_DEBOUNCE_MS 50
 #define HOLD_THRESHOLD_MS 1000
-#define DOUBLE_CLICK_WINDOW_MS 400
 #define FIELD_SELECT_TIMEOUT_MS 10000
-#define BLINK_INTERVAL_MS 500
 
 // Button actions
-enum BtnAction { ACT_NONE, ACT_READ_NOW, ACT_TOGGLE_UNIT, ACT_SWITCH_FIELD };
+enum BtnAction { ACT_NONE, ACT_TOGGLE_UNIT, ACT_SWITCH_FIELD };
 enum TempUnit { UNIT_C = 0, UNIT_F = 1 };
 
 LiquidCrystal lcd(LCD_RS, LCD_E, LCD_D4, LCD_D5, LCD_D6, LCD_D7);
@@ -57,45 +53,46 @@ DHT dht(DHTPIN, DHTTYPE);
 // ── State ──
 uint8_t writeIdx;
 TempUnit tempUnit = UNIT_C;
-bool fieldSelected = false;     // true when double-press activated selection
-bool fieldIsTemp = true;        // true=temp selected, false=humidity selected
+bool fieldSelected = false;
+bool fieldIsTemp = true;
 unsigned long lastFieldActivity = 0;
 unsigned long lastReadMs = 0;
 float currentTemp = NAN, currentHum = NAN;
 bool sensorError = false;
 
-// Button state machine
-enum BtnSm { SM_IDLE, SM_PRESSED, SM_RELEASE_WAIT };
-BtnSm btnSm = SM_IDLE;
-unsigned long btnPressMs = 0;
-unsigned long btnReleaseMs = 0;
-bool holdFired = false;
+// Refresh button (Pin5) state
+bool refreshWasLow = false;
+
+// Ctrl button (Pin6) state machine
+enum CtrlSm { CTRL_IDLE, CTRL_PRESSED };
+CtrlSm ctrlSm = CTRL_IDLE;
+unsigned long ctrlPressMs = 0;
+unsigned long lastCtrlMs = 0;
 
 void setup() {
   Serial.begin(9600);
   dht.begin();
   lcd.begin(16, 2);
-  pinMode(BTN_PIN, INPUT_PULLUP);
+  pinMode(BTN_REFRESH, INPUT_PULLUP);
+  pinMode(BTN_CTRL, INPUT_PULLUP);
 
-  // Restore EEPROM write index
   writeIdx = EEPROM.read(EEPROM_IDX_ADDR);
   if (writeIdx >= EEPROM_SLOTS) writeIdx = 0;
 
-  // Restore temp unit
   uint8_t u = EEPROM.read(EEPROM_TUNIT_ADDR);
   tempUnit = (u == UNIT_F) ? UNIT_F : UNIT_C;
 
   lcd.print("  Env Monitor");
   lcd.setCursor(0, 1);
-  lcd.print("  v1.1 ready");
+  lcd.print("  v1.2 ready");
 
-  lastReadMs = millis() - READ_INTERVAL_MS + 5000;  // first read in ~5s
+  lastReadMs = millis() - READ_INTERVAL_MS + 5000;
 }
 
 void loop() {
   handleSerial();
-  BtnAction action = pollButton();
-  handleButtonAction(action);
+  pollRefreshBtn();
+  handleButtonAction(pollCtrlBtn());
   handleReading();
   updateLcd();
 }
@@ -112,51 +109,42 @@ void handleSerial() {
   }
 }
 
-// ── Non-blocking button state machine ──
-BtnAction pollButton() {
-  bool pressed = (digitalRead(BTN_PIN) == LOW);
+// ── Refresh button (Pin5): edge-triggered → read now ──
+void pollRefreshBtn() {
+  bool low = (digitalRead(BTN_REFRESH) == LOW);
+  if (low && !refreshWasLow) {
+    refreshWasLow = true;
+    doRead();
+  }
+  refreshWasLow = low;
+}
+
+// ── Ctrl button (Pin6): short press=toggle unit, hold=switch field ──
+BtnAction pollCtrlBtn() {
+  bool pressed = (digitalRead(BTN_CTRL) == LOW);
   unsigned long now = millis();
 
-  switch (btnSm) {
-    case SM_IDLE:
-      if (pressed) {
-        btnPressMs = now;
-        holdFired = false;
-        btnSm = SM_PRESSED;
+  switch (ctrlSm) {
+    case CTRL_IDLE:
+      if (pressed && (now - lastCtrlMs > BTN_DEBOUNCE_MS)) {
+        lastCtrlMs = now;
+        ctrlPressMs = now;
+        ctrlSm = CTRL_PRESSED;
       }
       return ACT_NONE;
 
-    case SM_PRESSED:
+    case CTRL_PRESSED:
       if (!pressed) {
-        // Released before hold threshold → short click
-        unsigned long dur = now - btnPressMs;
-        if (dur >= BTN_DEBOUNCE_MS) {
-          btnReleaseMs = now;
-          btnSm = SM_RELEASE_WAIT;
-        } else {
-          btnSm = SM_IDLE;
+        ctrlSm = CTRL_IDLE;
+        if (now - ctrlPressMs < HOLD_THRESHOLD_MS) {
+          return ACT_TOGGLE_UNIT;  // short → unit
         }
         return ACT_NONE;
       }
-      // Still pressed — check hold
-      if (!holdFired && (now - btnPressMs >= HOLD_THRESHOLD_MS)) {
-        holdFired = true;
-        btnSm = SM_PRESSED;  // stay in pressed until release
-        return ACT_TOGGLE_UNIT;
-      }
-      return ACT_NONE;
-
-    case SM_RELEASE_WAIT:
-      // Wait for double-click window or second press
-      if (pressed && (now - btnReleaseMs < DOUBLE_CLICK_WINDOW_MS)) {
-        // Second press detected → double click
-        btnSm = SM_IDLE;
+      // Still held — fire once on threshold
+      if (now - ctrlPressMs >= HOLD_THRESHOLD_MS) {
+        ctrlPressMs = now + HOLD_THRESHOLD_MS * 2;  // prevent re-fire
         return ACT_SWITCH_FIELD;
-      }
-      if (now - btnReleaseMs >= DOUBLE_CLICK_WINDOW_MS) {
-        // Timeout → single click
-        btnSm = SM_IDLE;
-        return ACT_READ_NOW;
       }
       return ACT_NONE;
   }
@@ -166,9 +154,6 @@ BtnAction pollButton() {
 // ── Execute button actions ──
 void handleButtonAction(BtnAction action) {
   switch (action) {
-    case ACT_READ_NOW:
-      doRead();
-      break;
     case ACT_TOGGLE_UNIT:
       tempUnit = (tempUnit == UNIT_C) ? UNIT_F : UNIT_C;
       EEPROM.write(EEPROM_TUNIT_ADDR, (uint8_t)tempUnit);
@@ -183,7 +168,7 @@ void handleButtonAction(BtnAction action) {
   }
 }
 
-// ── Periodic sensor read ──
+// ── Reading ──
 void handleReading() {
   if (millis() - lastReadMs < READ_INTERVAL_MS) return;
   doRead();
@@ -228,32 +213,27 @@ void updateLcd() {
   }
   if (isnan(currentTemp) || isnan(currentHum)) return;
 
-  // Convert temperature
   float dispTemp = (tempUnit == UNIT_F) ? (currentTemp * 9.0 / 5.0 + 32.0) : currentTemp;
   char unitChar = (tempUnit == UNIT_F) ? 'F' : 'C';
 
   lcd.clear();
-
-  // Line 0: "Temp: XX.X°C"
   lcd.setCursor(0, 0);
   lcd.print("Temp: ");
   lcd.print(dispTemp, 1);
   lcd.print((char)223);
   lcd.print(unitChar);
 
-  // Line 1: "Hum:  XX.X%"
   lcd.setCursor(0, 1);
   lcd.print("Hum:  ");
   lcd.print(currentHum, 1);
   lcd.print("%");
 
-  // Blink cursor on selected field
   unsigned long now = millis();
   if (fieldSelected && (now - lastFieldActivity < FIELD_SELECT_TIMEOUT_MS)) {
     if (fieldIsTemp) {
-      lcd.setCursor(12, 0);  // after "Temp: XX.X°C"
+      lcd.setCursor(12, 0);
     } else {
-      lcd.setCursor(11, 1);  // after "Hum:  XX.X%"
+      lcd.setCursor(11, 1);
     }
     lcd.blink();
   } else {
@@ -267,7 +247,6 @@ void dumpBuffer() {
   uint8_t idx = EEPROM.read(EEPROM_IDX_ADDR);
   if (idx >= EEPROM_SLOTS) idx = 0;
 
-  // Compute current temp unit for the dump metadata
   uint8_t rawUnit = EEPROM.read(EEPROM_TUNIT_ADDR);
   Serial.print("TUNIT,");
   Serial.println(rawUnit == UNIT_F ? 1 : 0);
